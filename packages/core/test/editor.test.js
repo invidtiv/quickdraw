@@ -255,6 +255,67 @@ describe('text & notes', () => {
     expect(editor.store.shapes().length).toBe(1)
   })
 
+  function placeText(x, y, text) {
+    editor.setTool('text')
+    drag(editor, [[x, y]])
+    const ta = container.querySelector('textarea.qd-text-edit')
+    ta.value = text
+    ta.dispatchEvent(new window.Event('input'))
+    editor._commitText()
+    return editor.store.shapes().find((s) => s.type === 'text')
+  }
+  const editingId = () => editor.editing?.id
+
+  it('tapping the selected text opens it for editing again', () => {
+    const t = placeText(50, 50, 'hello')
+    expect(editor.tool).toBe('select')
+    expect([...editor.selection]).toEqual([t.id])
+    // tap the middle — the edges carry the resize handles
+    const b = editor.selectionBounds()
+    drag(editor, [[b.x + b.w / 2, b.y + b.h / 2]])
+    expect(editingId()).toBe(t.id)
+    expect(container.querySelector('textarea.qd-text-edit').value).toBe('hello')
+  })
+
+  it('a first tap on unselected text only selects it', () => {
+    const t = placeText(50, 50, 'hello')
+    editor.setSelection([])
+    drag(editor, [[55, 50]])
+    expect(editingId()).toBeUndefined()
+    expect([...editor.selection]).toEqual([t.id])
+  })
+
+  it('the text tool edits existing text instead of stacking a new box', () => {
+    const t = placeText(50, 50, 'hello')
+    editor.setTool('text')
+    drag(editor, [[55, 50]])
+    expect(editingId()).toBe(t.id)
+    expect(editor.store.shapes().length).toBe(1)
+  })
+
+  it('a touch or pen double-tap edits text (iPad sends no dblclick)', () => {
+    const t = placeText(50, 50, 'hello')
+    editor.setSelection([])
+    drag(editor, [[55, 50]], { pointerType: 'pen' })
+    drag(editor, [[56, 51]], { pointerType: 'pen' })
+    expect(editingId()).toBe(t.id)
+  })
+
+  it('a touch double-tap on empty board places text', () => {
+    editor.setTool('select')
+    drag(editor, [[300, 300]], { pointerType: 'touch' })
+    drag(editor, [[302, 300]], { pointerType: 'touch' })
+    expect(editingId()).toBeTruthy()
+    expect(editor.store.get(editingId()).type).toBe('text')
+  })
+
+  it('the native dblclick still edits text with a mouse', () => {
+    const t = placeText(50, 50, 'hello')
+    editor.setSelection([])
+    editor._dblClick({ type: 'dblclick', clientX: 55, clientY: 50 })
+    expect(editingId()).toBe(t.id)
+  })
+
   it('notes get the note default color when the pen is on the default ink', () => {
     editor.setTool('note')
     drag(editor, [[50, 50]])

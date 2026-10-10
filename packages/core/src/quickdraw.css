@@ -12,6 +12,12 @@
   outline: none;
   background: #fbf9f4;
   touch-action: none;
+  /* no iOS text selection, callout or tap flash on the board — a pencil drag
+     would otherwise select the whole canvas (the text editor opts back in) */
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
   border-radius: inherit;
   transition: background 320ms ease;
   /* lets the watermark dodge the dock on narrow boards (see below) */
@@ -428,6 +434,7 @@
   caret-color: currentColor;
   -webkit-user-select: text;
   user-select: text;
+  -webkit-touch-callout: default;
 }
 /* keyboard help overlay (press ?) */
 .qd-help-backdrop {

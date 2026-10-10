@@ -452,6 +452,13 @@ export class Editor {
     this._onDrop = (e) => this._drop(e)
     this._onDragOver = (e) => { e.preventDefault(); e.stopPropagation() }
     this._onPaste = (e) => this._paste(e)
+    // iOS Safari reads a finger or Apple Pencil drag on the board as a text
+    // selection and paints the whole canvas blue — the board surface opts
+    // out of touch defaults and selection (the text editor keeps both)
+    this._onTouchStart = (e) => { if (this._isSurface(e.target)) e.preventDefault() }
+    this._onSelectStart = (e) => { if (!isTextField(e.target)) e.preventDefault() }
+    c.addEventListener('touchstart', this._onTouchStart, { passive: false })
+    c.addEventListener('selectstart', this._onSelectStart)
     c.addEventListener('pointerdown', this._onDown)
     c.addEventListener('pointermove', this._onMove)
     c.addEventListener('pointerup', this._onUp)
@@ -471,6 +478,10 @@ export class Editor {
     this._ro.observe(c)
   }
 
+  _isSurface(t) {
+    return t === this.canvas || t === this.overlay || t === this.container
+  }
+
   _evPoint(e) {
     const r = this.container.getBoundingClientRect()
     return { x: e.clientX - r.left, y: e.clientY - r.top }
@@ -480,11 +491,15 @@ export class Editor {
     if (this.readonly) return
     if (e.target !== this.canvas && e.target !== this.overlay && e.target !== this.container) return
     if (e.button === 2) return
+    if (e.pointerType !== 'mouse' && e.cancelable !== false) e.preventDefault()
     if (this.editing) this._commitText()
     this.container.focus({ preventScroll: true })
     const s = this._evPoint(e)
+    // a second pointer turns whatever this was into a gesture, never a tap
+    this._tapStart = this._pointers.size ? null : { id: e.pointerId, type: e.pointerType, x: s.x, y: s.y, t: performance.now() }
     this._pointers.set(e.pointerId, s)
     this._ptrType.set(e.pointerId, e.pointerType)
+    if (e.pointerType === 'mouse') this._lastPtr = 'mouse'
     try { this.container.setPointerCapture(e.pointerId) } catch {}
 
     if (e.pointerType === 'pen') {
@@ -533,10 +548,14 @@ export class Editor {
       case 'geo': return this._beginGeo(p, e)
       // placing waits for pointerup: the textarea we focus would otherwise be
       // blurred again by the browser's default focus-on-mousedown action
+      // a tap on existing text edits it instead of stacking a new box on top
       case 'text':
-      case 'note':
-        this.session = { type: 'placing', tool: this.tool, page: p }
+      case 'note': {
+        const hit = this.hitTest(p.x, p.y)
+        const edit = hit && (hit.type === 'text' || hit.type === 'note') ? hit.id : null
+        this.session = { type: 'placing', tool: this.tool, page: p, edit }
         return
+      }
       case 'select': return this._beginSelect(e, s, p)
     }
   }
@@ -605,6 +624,34 @@ export class Editor {
   }
 
   _pointerUp(e) {
+    const tap = this._tapOf(e)
+    this._endPointer(e)
+    if (tap) this._noteTap(tap)
+  }
+
+  // A quick, still press-and-lift. Touch and pen taps feed the double-tap
+  // check below — iPad Safari never sends dblclick for them; the mouse keeps
+  // the native dblclick.
+  _tapOf(e) {
+    const st = this._tapStart
+    if (!st || st.id !== e.pointerId || e.type === 'pointercancel') return null
+    this._tapStart = null
+    if (e.pointerType === 'mouse') return null
+    const s = this._evPoint(e)
+    const now = performance.now()
+    if (now - st.t > 350 || Math.hypot(s.x - st.x, s.y - st.y) > 10) return null
+    return { type: st.type, x: s.x, y: s.y, t: now, clientX: e.clientX, clientY: e.clientY }
+  }
+  _noteTap(tap) {
+    this._lastPtr = tap.type
+    const prev = this._lastTap
+    const dbl = prev && prev.type === tap.type && tap.t - prev.t < 400 && Math.hypot(tap.x - prev.x, tap.y - prev.y) < 24
+    this._lastTap = dbl ? null : tap
+    // the tap itself may already have opened the editor (a tap on selected text)
+    if (dbl && !this.editing) this._dblClick({ clientX: tap.clientX, clientY: tap.clientY })
+  }
+
+  _endPointer(e) {
     this._pointers.delete(e.pointerId)
     this._ptrType.delete(e.pointerId)
     if (e.pointerType === 'pen') this._penDown = false
@@ -633,7 +680,11 @@ export class Editor {
       case 'translating': return this._endTranslate()
       case 'placing': {
         this.session = null
-        ss.tool === 'note' ? this._placeNote(ss.page) : this._placeText(ss.page)
+        if (ss.edit && this.store.has(ss.edit)) {
+          this.setTool('select')
+          this.setSelection([ss.edit])
+          this._startTextEdit(ss.edit, 'text')
+        } else ss.tool === 'note' ? this._placeNote(ss.page) : this._placeText(ss.page)
         return
       }
       case 'resizing':
@@ -645,6 +696,13 @@ export class Editor {
         this.requestRender()
         return
       case 'pressing': {
+        // tapping text that was already the lone selection opens it for
+        // editing — the one-tap path that works with a finger or a pencil
+        if (ss.hit && ss.wasOnly && !ss.additive && (ss.hit.type === 'text' || ss.hit.type === 'note') && this.store.has(ss.hit.id)) {
+          this.session = null
+          this._startTextEdit(ss.hit.id, 'text')
+          return
+        }
         // a clean click: selection settles to the pressed shape (or clears);
         // an additive click toggles — unless the down-stroke just added it
         if (ss.hit) this.setSelection(ss.additive ? (ss.added ? [...this.selection] : this._toggled(ss.hit.id)) : [ss.hit.id])
@@ -1038,11 +1096,12 @@ export class Editor {
     const hit = this.hitTest(p.x, p.y)
     if (hit) {
       const wasSelected = this.selection.has(hit.id)
+      const wasOnly = wasSelected && this.selection.size === 1
       if (!wasSelected && !additive) this.setSelection([hit.id])
       else if (additive && !wasSelected) this.setSelection([...this.selection, hit.id])
       // `added` marks a shape shift-selected on the way down, so the clean
       // click on the way up keeps it instead of toggling it straight back out
-      this.session = { type: 'pressing', hit, additive, added: additive && !wasSelected, start: s, page: p }
+      this.session = { type: 'pressing', hit, additive, added: additive && !wasSelected, wasOnly, start: s, page: p }
     } else {
       this.session = { type: 'marquee', origin: p, rect: null, additive, base: [...this.selection] }
       if (!additive) this.setSelection([])
@@ -1219,10 +1278,14 @@ export class Editor {
 
   _dblClick(e) {
     if (this.readonly || this.tool !== 'select') return
+    // a native dblclick that trails a touch/pen double-tap was handled already
+    if (e.type === 'dblclick' && this._lastPtr && this._lastPtr !== 'mouse') return
     const s = this._evPoint(e)
     const p = this.screenToPage(s.x, s.y)
     const hit = this.hitTest(p.x, p.y)
     if (hit) {
+      // the second click of a double-click already opened this text: select it all
+      if (this.editing && this.editing.id === hit.id) { this.editing.textarea.select(); return }
       if (hit.type === 'text' || hit.type === 'note') {
         this.setSelection([hit.id])
         this._startTextEdit(hit.id, 'text')
@@ -1860,6 +1923,8 @@ export class Editor {
     this._unsubHistory()
     this._ro.disconnect()
     const c = this.container
+    c.removeEventListener('touchstart', this._onTouchStart)
+    c.removeEventListener('selectstart', this._onSelectStart)
     c.removeEventListener('pointerdown', this._onDown)
     c.removeEventListener('pointermove', this._onMove)
     c.removeEventListener('pointerup', this._onUp)
@@ -1877,6 +1942,8 @@ export class Editor {
     c.classList.remove('qd-root')
   }
 }
+
+const isTextField = (t) => !!t && (t.tagName === 'TEXTAREA' || t.tagName === 'INPUT' || t.isContentEditable)
 
 // decode + gently downscale an imported image, return a dataURL asset
 async function readImage(blob) {
