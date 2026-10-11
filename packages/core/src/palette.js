@@ -104,7 +104,9 @@ export const DASH_IDS = ['draw', 'solid', 'dashed', 'dotted']
 export const FILL_IDS = ['none', 'semi', 'solid', 'pattern']
 
 export const FONTS = {
-  draw: "'Segoe Print', 'Comic Sans MS', 'Chalkboard SE', cursive",
+  // 'Quickdraw Hand' is Kalam, bundled via quickdraw.css; the rest are the
+  // fallbacks while it loads (or if the stylesheet isn't included)
+  draw: "'Quickdraw Hand', 'Segoe Print', 'Chalkboard SE', cursive",
   sans: "-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', sans-serif",
   serif: "'Iowan Old Style', 'New York', Palatino, Georgia, serif",
   mono: "'SF Mono', ui-monospace, Menlo, monospace",

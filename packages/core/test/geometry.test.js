@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import {
   clamp, lerp, boundsUnion, boundsExpand, boundsContain, boundsIntersect,
   ptsBounds, rotWith, distToSegSq, distToPolyline, pointInPolygon,
-  pointInEllipse, segIntersectsBounds, seededRand, wobblePolyline,
+  pointInEllipse, segIntersectsBounds, seededRand, wobblePolyline, bowPolygon,
   geoPolygon, ellipsePolygon, cloudPolygon,
 } from '../src/geometry.js'
 
@@ -101,6 +101,31 @@ describe('seeded wobble', () => {
     for (let i = 0; i < w1.length; i += 2) {
       expect(w1[i]).toBeGreaterThan(-5)
       expect(w1[i]).toBeLessThan(105)
+    }
+  })
+})
+
+describe('hand-drawn polygons', () => {
+  it('bowPolygon is deterministic, dense, and never strays more than a calm hand would', () => {
+    const rect = [0, 0, 300, 0, 300, 200, 0, 200]
+    const a = bowPolygon(rect, 'shape:1')
+    expect(a).toEqual(bowPolygon(rect, 'shape:1'))
+    expect(a).not.toEqual(bowPolygon(rect, 'shape:2'))
+    expect(a.length / 2).toBeGreaterThan(90) // ~10px steps around a 1000px edge
+    // every point sits within corner jitter + max bow of the true outline
+    for (let i = 0; i < a.length; i += 2) {
+      const x = a[i], y = a[i + 1]
+      const d = Math.min(Math.abs(x), Math.abs(x - 300), Math.abs(y), Math.abs(y - 200))
+      expect(d).toBeLessThan(0.45 + 1.3 + 0.01)
+    }
+  })
+
+  it('keeps small shapes proportionally calm', () => {
+    const tiny = bowPolygon([0, 0, 20, 0, 20, 20, 0, 20], 'tiny')
+    for (let i = 0; i < tiny.length; i += 2) {
+      const x = tiny[i], y = tiny[i + 1]
+      const d = Math.min(Math.abs(x), Math.abs(x - 20), Math.abs(y), Math.abs(y - 20))
+      expect(d).toBeLessThan(0.45 + 20 * 0.006 + 0.01)
     }
   })
 })

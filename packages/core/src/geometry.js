@@ -153,6 +153,32 @@ export const wobblePolyline = (pts, seed, { step = 24, amp = 1.6, closed = true 
   return out
 }
 
+// a hand-drawn polygon: each edge is one gentle bow and every corner sits a
+// hair off true — it reads as drawn by hand, not traced by a shaky pen. The
+// bow scales with the edge but never past `maxBow`, so a big box stays calm.
+// Output is a dense closed polyline (no repeated start point).
+export const bowPolygon = (pts, seed, { bow = 0.006, maxBow = 1.3, jitter = 0.45, step = 10 } = {}) => {
+  const rand = seededRand(seed)
+  const n = pts.length / 2
+  const c = new Array(n * 2)
+  for (let i = 0; i < n * 2; i++) c[i] = pts[i] + (rand() * 2 - 1) * jitter
+  const out = []
+  for (let i = 0; i < n; i++) {
+    const ax = c[i * 2], ay = c[i * 2 + 1]
+    const bx = c[((i + 1) % n) * 2], by = c[((i + 1) % n) * 2 + 1]
+    const len = Math.hypot(bx - ax, by - ay)
+    const nx = -(by - ay) / (len || 1), ny = (bx - ax) / (len || 1)
+    const k = (rand() * 2 - 1) * Math.min(maxBow, len * bow)
+    const count = Math.max(1, Math.ceil(len / step))
+    for (let s = 0; s < count; s++) {
+      const t = s / count
+      const off = 4 * t * (1 - t) * k
+      out.push(ax + (bx - ax) * t + nx * off, ay + (by - ay) * t + ny * off)
+    }
+  }
+  return out
+}
+
 // ---- geo polygon builders (local space, box w×h) ---------------------------
 
 export const geoPolygon = (geo, w, h) => {

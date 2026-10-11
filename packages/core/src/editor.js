@@ -4,10 +4,10 @@
 // Dependency-free ESM: runs in any modern browser as-is, no build step.
 
 import { Store, newId } from './store.js'
-import { themeOf, SIZES, FONT_SIZES, GEO_IDS, COLOR_IDS, GRID_IDS, GRID_STEP, GRID_MAJOR } from './palette.js'
+import { themeOf, SIZES, FONT_SIZES, FONTS, GEO_IDS, COLOR_IDS, GRID_IDS, GRID_STEP, GRID_MAJOR } from './palette.js'
 import {
   localBounds, pageBounds, toLocal, drawShape, hitShape, marqueeHits,
-  scaleShape, textLayout, noteLayout, NOTE_W, sampleLinePts,
+  scaleShape, textLayout, noteLayout, NOTE_W, sampleLinePts, resetTextLayouts,
 } from './shapes.js'
 import { boundsUnion, boundsExpand, boundsContain, clamp, rotWith } from './geometry.js'
 
@@ -82,6 +82,17 @@ export class Editor {
     // history moves on its own channel: the end of a gesture batch changes
     // canUndo/canRedo without emitting a document diff
     this._unsubHistory = this.store.listenHistory(() => this.emit('history'))
+    // the bundled hand font lands after the first paint: text measured with
+    // the fallback would keep the wrong box, so re-measure when fonts arrive
+    this._onFonts = () => {
+      if (this._destroyed) return
+      resetTextLayouts()
+      this.requestRender()
+    }
+    if (typeof document !== 'undefined' && document.fonts) {
+      document.fonts.addEventListener('loadingdone', this._onFonts)
+      document.fonts.load(`500 20px ${FONTS.draw}`, 'Ag').then(this._onFonts, () => {})
+    }
     this.requestRender()
   }
 
@@ -1921,6 +1932,7 @@ export class Editor {
     cancelAnimationFrame(this._laserRaf || 0)
     this._unsubStore()
     this._unsubHistory()
+    if (typeof document !== 'undefined' && document.fonts) document.fonts.removeEventListener('loadingdone', this._onFonts)
     this._ro.disconnect()
     const c = this.container
     c.removeEventListener('touchstart', this._onTouchStart)
