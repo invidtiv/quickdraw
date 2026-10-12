@@ -554,6 +554,32 @@ describe('createQuickdraw UI', () => {
     c2.remove()
   })
 
+  it('the shape button re-kinds selected shapes and keeps the selection', async () => {
+    const c2 = document.createElement('div')
+    document.body.appendChild(c2)
+    const board = createQuickdraw({ container: c2 })
+    const ed = board.editor
+    ed.setTool('geo')
+    drag(ed, [[10, 10], [110, 60]])
+    const [s] = ed.store.shapes()
+    expect(ed.selection.has(s.id)).toBe(true)
+    c2.querySelector('.qd-dock button[data-name="geo"]').click()
+    expect(ed.tool).toBe('select')
+    expect(ed.selection.has(s.id)).toBe(true)
+    const ellipse = [...c2.querySelectorAll('.qd-geo-pop button')].find((b) => b.title === 'ellipse')
+    expect(c2.querySelector('.qd-geo-pop button.on').title).toBe('rectangle')
+    ellipse.click()
+    expect(ed.store.get(s.id).props.geo).toBe('ellipse')
+    expect(ed.selection.has(s.id)).toBe(true)
+    expect(ed.tool).toBe('select')
+    // with nothing selected it arms the tool as before
+    ed.setSelection([])
+    c2.querySelector('.qd-dock button[data-name="geo"]').click()
+    expect(ed.tool).toBe('geo')
+    board.destroy()
+    c2.remove()
+  })
+
   it('shows the watermark by default, linked to the site', () => {
     const c2 = document.createElement('div')
     document.body.appendChild(c2)

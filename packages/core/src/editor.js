@@ -268,6 +268,27 @@ export class Editor {
   setGeoKind(kind) {
     if (GEO_IDS.includes(kind)) { this.geoKind = kind; this.emit('tool') }
   }
+  // the selected geo shapes' shared kind: undefined when none is selected,
+  // null when they differ
+  selectedGeoKind() {
+    let kind
+    for (const id of this.selection) {
+      const s = this.store.get(id)
+      if (s?.type !== 'geo') continue
+      if (kind === undefined) kind = s.props.geo
+      else if (kind !== s.props.geo) return null
+    }
+    return kind
+  }
+  // re-kind the selected geo shapes in place (a box becomes an ellipse) — the
+  // shape picker's answer to a selection, which therefore stays selected
+  setSelectedGeoKind(kind) {
+    if (!GEO_IDS.includes(kind)) return
+    this.geoKind = kind
+    const ids = [...this.selection].filter((id) => this.store.get(id)?.type === 'geo')
+    if (ids.length) this.store.transact(() => { for (const id of ids) this.store.update(id, { props: { geo: kind } }) })
+    this.emit('tool')
+  }
   setTheme(id) {
     const t = themeOf(id)
     if (t === this.theme) return

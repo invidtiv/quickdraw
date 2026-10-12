@@ -235,6 +235,10 @@ export class Editor {
   // tools / styles
   setTool(tool: ToolId): void
   setGeoKind(kind: GeoId): void
+  /** The selected geo shapes' shared kind: undefined when none is selected, null when mixed. */
+  selectedGeoKind(): GeoId | null | undefined
+  /** Re-kind the selected geo shapes in place; the selection stays. */
+  setSelectedGeoKind(kind: GeoId): void
   setTheme(id: ThemeId | string): void
   /** 'none' | 'lines' | 'ruled' | 'dots' | 'crosses' | 'iso' — the backdrop behind the drawing. */
   setGrid(id: GridId): void

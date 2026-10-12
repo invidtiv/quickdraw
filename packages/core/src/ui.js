@@ -135,18 +135,25 @@ export function buildUI(editor, { hidden = false, onSave, themeToggle = true, gr
   }
   // the shape button: every tap arms the current kind AND shows the kinds,
   // so picking a shape never takes a second hunt for the menu
+  // With geo shapes selected the kinds re-kind them instead, and the tool
+  // (and so the selection) stays put.
   const geoTap = (b) => {
-    editor.setTool('geo')
+    const selKind = editor.selectedGeoKind()
+    const rekind = selKind !== undefined
+    if (!rekind) editor.setTool('geo')
     openPopover('geo', (p) => {
       p.classList.add('qd-geo-pop')
       for (const g of GEO_IDS) {
-        const gb = el('button', 'qd-tool' + (editor.geoKind === g ? ' on' : ''))
+        const gb = el('button', 'qd-tool' + ((rekind ? selKind : editor.geoKind) === g ? ' on' : ''))
         gb.innerHTML = ICONS[g]
         gb.title = g
         gb.addEventListener('click', (ev) => {
           ev.stopPropagation()
-          editor.setGeoKind(g)
-          editor.setTool('geo')
+          if (rekind) editor.setSelectedGeoKind(g)
+          else {
+            editor.setGeoKind(g)
+            editor.setTool('geo')
+          }
           closePopover()
         })
         p.appendChild(gb)
@@ -542,7 +549,7 @@ export function buildUI(editor, { hidden = false, onSave, themeToggle = true, gr
       b.classList.toggle('on', editor.tool === n)
     }
     const geoBtn = dockBtns.get('geo')
-    geoBtn.innerHTML = ICONS[editor.geoKind]
+    geoBtn.innerHTML = ICONS[editor.selectedGeoKind() || editor.geoKind]
     actBtns.get('undo').disabled = !editor.store.canUndo
     actBtns.get('redo').disabled = !editor.store.canRedo
     const hasSel = editor.selection.size > 0
