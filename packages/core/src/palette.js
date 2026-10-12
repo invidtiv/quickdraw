@@ -107,9 +107,9 @@ export const DASH_IDS = ['draw', 'solid', 'dashed', 'dotted']
 export const FILL_IDS = ['none', 'semi', 'solid', 'pattern']
 
 export const FONTS = {
-  // 'Quickdraw Script' is Cormorant Upright, bundled via quickdraw.css; the rest
-  // are the fallbacks while it loads (or if the stylesheet isn't included)
-  draw: "'Quickdraw Script', 'Cormorant Upright', 'Iowan Old Style', Palatino, Georgia, serif",
+  // 'Quickdraw Hand' is Architects Daughter, bundled via quickdraw.css; the rest are
+  // the fallbacks while it loads (or if the stylesheet isn't included)
+  draw: "'Quickdraw Hand', 'Architects Daughter', 'Segoe Print', 'Chalkboard SE', cursive",
   sans: "-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', sans-serif",
   serif: "'Iowan Old Style', 'New York', Palatino, Georgia, serif",
   mono: "'SF Mono', ui-monospace, Menlo, monospace",
