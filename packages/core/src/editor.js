@@ -4,7 +4,7 @@
 // Dependency-free ESM: runs in any modern browser as-is, no build step.
 
 import { Store, newId } from './store.js'
-import { themeOf, SIZES, FONT_SIZES, FONTS, GEO_IDS, COLOR_IDS, GRID_IDS, GRID_STEP, GRID_MAJOR } from './palette.js'
+import { themeOf, SIZES, FONT_SIZES, FONTS, GEO_IDS, COLOR_IDS, GRID_IDS, GRID_STEP, GRID_BAND, GRID_MAJOR } from './palette.js'
 import {
   localBounds, pageBounds, toLocal, drawShape, hitShape, marqueeHits,
   scaleShape, textLayout, noteLayout, NOTE_W, sampleLinePts, resetTextLayouts,
@@ -1637,99 +1637,106 @@ export class Editor {
   }
 
   // The lattice, drawn in device pixels so rules stay hairline-crisp at any
-  // zoom. Spacing doubles or halves to stay in a comfortable band, and a new
-  // level fades in as you zoom rather than popping into place.
+  // zoom. The step lives in a one-octave band of screen px. Every other mark
+  // (the coarse lattice) is drawn at full ink; the marks between fade in as
+  // the spacing opens up, at exactly the rate that holds the ink per screen
+  // area constant. So zooming never lightens, darkens or pops: by the top of
+  // the octave the in-between marks are at full ink, and the picture is the
+  // next level's coarse lattice.
   // W/H are device px; the ctx must be untransformed.
   _drawGrid(ctx, cam, W, H, dpr) {
     if (this.grid === 'none' || !(cam.z > 0)) return
     // point-like marks (dots, crosses) carry less ink, so they use the darker ramp
-    const g = this.theme.grid?.[['dots', 'crosses'].includes(this.grid) ? 'dot' : 'line']
+    const points = this.grid === 'dots' || this.grid === 'crosses'
+    const g = this.theme.grid?.[points ? 'dot' : 'line']
     if (!g) return
-    let step = GRID_STEP
-    while (step * cam.z < 36) step *= 2
-    while (step * cam.z > 144) step /= 2
-    const fade = clamp((step * cam.z - 32) / 28, 0, 1)
-    if (fade <= 0) return
+    // the fine step: half the visible lattice (GRID_STEP at zoom 1)
+    let step = GRID_STEP / 2
+    while (step * cam.z < GRID_BAND) step *= 2
+    while (step * cam.z >= GRID_BAND * 2) step /= 2
+    const r = (step * cam.z) / GRID_BAND // 1 → 2 across the octave
+    // ink of the in-between marks: lines per px stay constant at r − 1,
+    // points per px² at (r² − 1) / 3
+    const fade = points ? (r * r - 1) / 3 : r - 1
     const z = cam.z * dpr
     // first line/dot of each axis that lands inside the frame
     const n0 = Math.ceil(-cam.x / step)
     const m0 = Math.ceil(-cam.y / step)
-    const isMajor = (i) => i % GRID_MAJOR === 0
     const cols = [], rows = []
-    for (let n = n0, x = (n0 * step + cam.x) * z; x <= W; n++, x += step * z) cols.push([x, isMajor(n)])
-    for (let m = m0, y = (m0 * step + cam.y) * z; y <= H; m++, y += step * z) rows.push([y, isMajor(m)])
+    for (let n = n0, x = (n0 * step + cam.x) * z; x <= W; n++, x += step * z) cols.push([x, n])
+    for (let m = m0, y = (m0 * step + cam.y) * z; y <= H; m++, y += step * z) rows.push([y, m])
+    const mod = (i, m) => ((i % m) + m) % m
+    // Four passes, by ink and weight. Even indices are the coarse lattice;
+    // majors fall on every GRID_MAJOR-th coarse mark, and the odd multiples
+    // are the next level's majors, fading in with the rest.
+    const MINOR = 0, MINOR_FADE = 1, MAJOR = 2, MAJOR_FADE = 3
+    const passes = [[g.minor, 1], [g.minor, fade], [g.major, 1], [g.major, fade]]
+    const lineKind = (i) =>
+      mod(i, 2 * GRID_MAJOR) === 0 ? MAJOR : mod(i, GRID_MAJOR) === 0 ? MAJOR_FADE : mod(i, 2) === 0 ? MINOR : MINOR_FADE
+    const pointKind = (n, m) =>
+      mod(n, 2 * GRID_MAJOR) === 0 && mod(m, 2 * GRID_MAJOR) === 0 ? MAJOR
+        : mod(n, GRID_MAJOR) === 0 && mod(m, GRID_MAJOR) === 0 ? MAJOR_FADE
+          : mod(n, 2) === 0 && mod(m, 2) === 0 ? MINOR : MINOR_FADE
 
     ctx.save()
-    if (this.grid === 'lines' || this.grid === 'ruled') {
-      for (const major of [false, true]) {
-        ctx.beginPath()
+    ctx.lineWidth = 1
+    passes.forEach(([ink, alpha], kind) => {
+      if (!(alpha > 0)) return
+      ctx.beginPath()
+      if (this.grid === 'lines' || this.grid === 'ruled') {
         // half-pixel offsets keep a 1px rule on one device pixel, not two
         if (this.grid === 'lines') {
-          for (const [x, m] of cols) if (m === major) { const p = Math.round(x) + 0.5; ctx.moveTo(p, 0); ctx.lineTo(p, H) }
+          for (const [x, n] of cols) if (lineKind(n) === kind) { const p = Math.round(x) + 0.5; ctx.moveTo(p, 0); ctx.lineTo(p, H) }
         }
-        for (const [y, m] of rows) if (m === major) { const p = Math.round(y) + 0.5; ctx.moveTo(0, p); ctx.lineTo(W, p) }
-        ctx.strokeStyle = major ? g.major : g.minor
-        ctx.globalAlpha = fade
-        ctx.lineWidth = 1
-        ctx.stroke()
-      }
-    } else if (this.grid === 'crosses') {
-      // a small + at each intersection — the draughtsman's registration marks
-      for (const major of [false, true]) {
-        const arm = (major ? 4.5 : 3) * dpr
-        ctx.beginPath()
-        for (const [y, my] of rows) {
+        for (const [y, m] of rows) if (lineKind(m) === kind) { const p = Math.round(y) + 0.5; ctx.moveTo(0, p); ctx.lineTo(W, p) }
+      } else if (this.grid === 'crosses') {
+        // a small + at each intersection — the draughtsman's registration marks
+        const arm = (kind >= MAJOR ? 4.5 : 3) * dpr
+        for (const [y, m] of rows) {
           const py = Math.round(y) + 0.5
-          for (const [x, mx] of cols) {
-            if ((mx && my) !== major) continue
+          for (const [x, n] of cols) {
+            if (pointKind(n, m) !== kind) continue
             const px = Math.round(x) + 0.5
             ctx.moveTo(px - arm, py); ctx.lineTo(px + arm, py)
             ctx.moveTo(px, py - arm); ctx.lineTo(px, py + arm)
           }
         }
-        ctx.strokeStyle = major ? g.major : g.minor
-        ctx.globalAlpha = fade
-        ctx.lineWidth = 1
-        ctx.stroke()
-      }
-    } else if (this.grid === 'iso') {
-      // isometric weave: the two 30° diagonal families make a diamond lattice
-      // that stays self-aligned at every zoom. One quiet weight — major
-      // emphasis turns a woven field into noise.
-      const s = Math.tan(Math.PI / 6) // 30° from horizontal
-      ctx.beginPath()
-      for (const sign of [1, -1]) {
-        const slope = sign * s
-        // page-space intercepts k*step, mapped into device space
-        const b0 = -slope * cam.x + cam.y // device intercept of the k=0 line, /z
-        const lo = Math.min(0, -slope * (W / z)) // device-x range → intercept range
-        const hi = Math.max(H / z, H / z - slope * (W / z))
-        const k0 = Math.ceil((lo - b0) / step)
-        const k1 = Math.floor((hi - b0) / step)
-        for (let k = k0; k <= k1; k++) {
-          const b = (b0 + k * step) * z
-          ctx.moveTo(0, b)
-          ctx.lineTo(W, b + slope * W)
+      } else if (this.grid === 'iso') {
+        // isometric weave: the two 30° diagonal families make a diamond lattice
+        // that stays self-aligned at every zoom. One quiet weight — major
+        // emphasis turns a woven field into noise.
+        if (kind >= MAJOR) return
+        const s = Math.tan(Math.PI / 6) // 30° from horizontal
+        for (const sign of [1, -1]) {
+          const slope = sign * s
+          // page-space intercepts k*step, mapped into device space
+          const b0 = -slope * cam.x + cam.y // device intercept of the k=0 line, /z
+          const lo = Math.min(0, -slope * (W / z)) // device-x range → intercept range
+          const hi = Math.max(H / z, H / z - slope * (W / z))
+          const k0 = Math.ceil((lo - b0) / step)
+          const k1 = Math.floor((hi - b0) / step)
+          for (let k = k0; k <= k1; k++) {
+            if ((mod(k, 2) === 0 ? MINOR : MINOR_FADE) !== kind) continue
+            const b = (b0 + k * step) * z
+            ctx.moveTo(0, b)
+            ctx.lineTo(W, b + slope * W)
+          }
+        }
+      } else {
+        // one weight, one ink — emphasized dots read as stray marks on the paper
+        if (kind >= MAJOR) return
+        const rad = 1.6 * dpr
+        for (const [y, m] of rows) {
+          for (const [x, n] of cols) {
+            if ((mod(n, 2) === 0 && mod(m, 2) === 0 ? MINOR : MINOR_FADE) !== kind) continue
+            ctx.moveTo(x + rad, y)
+            ctx.arc(x, y, rad, 0, Math.PI * 2)
+          }
         }
       }
-      ctx.strokeStyle = g.minor
-      ctx.globalAlpha = fade
-      ctx.lineWidth = 1
-      ctx.stroke()
-    } else {
-      // one weight, one ink — emphasized dots read as stray marks on the paper
-      const r = 1.6 * dpr
-      ctx.beginPath()
-      for (const [y] of rows) {
-        for (const [x] of cols) {
-          ctx.moveTo(x + r, y)
-          ctx.arc(x, y, r, 0, Math.PI * 2)
-        }
-      }
-      ctx.fillStyle = g.minor
-      ctx.globalAlpha = fade
-      ctx.fill()
-    }
+      ctx.globalAlpha = alpha
+      if (this.grid === 'dots') { ctx.fillStyle = ink; ctx.fill() } else { ctx.strokeStyle = ink; ctx.stroke() }
+    })
     ctx.restore()
   }
 

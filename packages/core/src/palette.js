@@ -84,6 +84,9 @@ export const THEMES = {
 export const GRID_IDS = ['none', 'lines', 'ruled', 'dots', 'crosses', 'iso']
 // Lattice spacing in page px at zoom 1, and the every-Nth emphasis.
 export const GRID_STEP = 80
+// The finest step the grid draws, in screen px: the lattice it shows spans
+// GRID_BAND·2 to GRID_BAND·4 between levels.
+export const GRID_BAND = 40
 export const GRID_MAJOR = 5
 
 export const themeOf = (id) => THEMES[id === 'dark' ? 'dark' : 'light']

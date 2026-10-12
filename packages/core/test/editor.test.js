@@ -418,18 +418,30 @@ describe('grid', () => {
     expect(strokes[1][1]).toBe(editor.theme.grid.line.major)
   })
 
-  it('doubles the step as you zoom out, halves it as you zoom in', () => {
-    editor.setGrid('lines')
-    const stepAt = (z) => {
+  it('holds the ink per screen area constant through zoom, with no step', () => {
+    // ink = Σ alpha over the marks drawn, per px (lines) or px² (dots)
+    const inkAt = (grid, z) => {
+      editor.setGrid(grid)
       const ctx = recordingCtx()
-      editor._drawGrid(ctx, { x: 0, y: 0, z }, 800, 400, 1)
-      const xs = [...new Set(ctx.calls.filter((c) => c[0] === 'moveTo' && c[2] === 0).map((c) => c[1]))]
-      xs.sort((a, b) => a - b)
-      return (xs[1] - xs[0]) / z // back to page units
+      const W = grid === 'dots' ? 6000 : 40000
+      const H = grid === 'dots' ? 6000 : 10
+      editor._drawGrid(ctx, { x: 0, y: 0, z }, W, H, 1)
+      let marks = 0, ink = 0
+      for (const c of ctx.calls) {
+        if (c[0] === 'beginPath') marks = 0
+        else if (grid === 'dots' ? c[0] === 'arc' : c[0] === 'moveTo' && c[2] === 0) marks++
+        else if (c[0] === 'stroke' || c[0] === 'fill') ink += marks * c[2]
+      }
+      return grid === 'dots' ? ink / (W * H) : ink / W
     }
-    expect(stepAt(1)).toBe(80)
-    expect(stepAt(0.3)).toBe(160) // doubled once: 160 * 0.3 = 48px on screen
-    expect(stepAt(3)).toBe(40)
+    for (const grid of ['lines', 'dots']) {
+      const base = inkAt(grid, 1)
+      expect(base).toBeGreaterThan(0)
+      // a geometric sweep across several octaves, through every level change
+      for (let z = 0.03; z < 30; z *= 1.07) {
+        expect(Math.abs(inkAt(grid, z) / base - 1)).toBeLessThan(0.03)
+      }
+    }
   })
 
   it('dots mark intersections in one uniform weight and ink', () => {
