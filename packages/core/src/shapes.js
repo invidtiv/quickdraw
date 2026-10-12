@@ -189,7 +189,7 @@ function geoLabelLayout(shape) {
   const key = p
   let hit = layoutCache.get(key)
   if (hit) return hit
-  const fontSize = FONT_SIZES[p.labelSize || 's']
+  const fontSize = FONT_SIZES[p.labelSize || 's'] * (p.labelScale || 1)
   const font = FONTS[p.font || 'draw']
   const lh = fontSize * 1.3
   const lines = wrapLines(p.label, font, fontSize, Math.max(24, p.w - LABEL_PAD * 2))

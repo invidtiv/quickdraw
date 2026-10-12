@@ -1055,7 +1055,7 @@ export class Editor {
       ta.style.lineHeight = lay.lh * s * z + 'px'
     } else if (shape.type === 'geo' && ed.field === 'label') {
       const p = shape.props
-      const fs = FONT_SIZES[p.labelSize || 's']
+      const fs = FONT_SIZES[p.labelSize || 's'] * (p.labelScale || 1)
       const fam = FONTS[p.font || 'draw']
       pos = this.pageToScreen(shape.x + 8, shape.y + 8)
       w = p.w - 16
