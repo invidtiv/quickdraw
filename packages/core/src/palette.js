@@ -83,7 +83,7 @@ export const THEMES = {
 // crosses (blueprint style), and an isometric triangle weave.
 export const GRID_IDS = ['none', 'lines', 'ruled', 'dots', 'crosses', 'iso']
 // Lattice spacing in page px at zoom 1, and the every-Nth emphasis.
-export const GRID_STEP = 40
+export const GRID_STEP = 80
 export const GRID_MAJOR = 5
 
 export const themeOf = (id) => THEMES[id === 'dark' ? 'dark' : 'light']

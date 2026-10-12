@@ -407,10 +407,10 @@ describe('grid', () => {
   it('rules the frame at the base step, majors every fifth', () => {
     editor.setGrid('lines')
     const ctx = recordingCtx()
-    // 400x200 device px at zoom 1 → 40px steps: 11 columns (0..400), 6 rows
+    // 400x200 device px at zoom 1 → 80px steps: 6 columns (0..400), 3 rows
     editor._drawGrid(ctx, { x: 0, y: 0, z: 1 }, 400, 200, 1)
     const verticals = ctx.calls.filter((c) => c[0] === 'moveTo' && c[2] === 0).map((c) => c[1])
-    expect(verticals.sort((a, b) => a - b)).toEqual([0.5, 40.5, 80.5, 120.5, 160.5, 200.5, 240.5, 280.5, 320.5, 360.5, 400.5])
+    expect(verticals.sort((a, b) => a - b)).toEqual([0.5, 80.5, 160.5, 240.5, 320.5, 400.5])
     // two passes: minor then major, the majors darker
     const strokes = ctx.calls.filter((c) => c[0] === 'stroke')
     expect(strokes.length).toBe(2)
@@ -427,9 +427,9 @@ describe('grid', () => {
       xs.sort((a, b) => a - b)
       return (xs[1] - xs[0]) / z // back to page units
     }
-    expect(stepAt(1)).toBe(40)
-    expect(stepAt(0.3)).toBe(80) // doubled once: 80 * 0.3 = 24px on screen
-    expect(stepAt(3)).toBe(20)
+    expect(stepAt(1)).toBe(80)
+    expect(stepAt(0.3)).toBe(160) // doubled once: 160 * 0.3 = 48px on screen
+    expect(stepAt(3)).toBe(40)
   })
 
   it('dots mark intersections in one uniform weight and ink', () => {
@@ -437,7 +437,7 @@ describe('grid', () => {
     const ctx = recordingCtx()
     editor._drawGrid(ctx, { x: 0, y: 0, z: 1 }, 400, 200, 1)
     const arcs = ctx.calls.filter((c) => c[0] === 'arc')
-    expect(arcs.length).toBe(11 * 6)
+    expect(arcs.length).toBe(6 * 3)
     const radii = [...new Set(arcs.map((c) => c[3]))]
     expect(radii).toEqual([1.6])
     // dots carry less ink than rules, so they run darker to read as calm
@@ -451,7 +451,7 @@ describe('grid', () => {
     const ctx = recordingCtx()
     editor._drawGrid(ctx, { x: 10, y: 0, z: 1 }, 100, 100, 1)
     const verticals = ctx.calls.filter((c) => c[0] === 'moveTo' && c[2] === 0).map((c) => c[1])
-    expect(verticals.sort((a, b) => a - b)).toEqual([10.5, 50.5, 90.5])
+    expect(verticals.sort((a, b) => a - b)).toEqual([10.5, 90.5])
   })
 })
 

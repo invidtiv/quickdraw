@@ -1646,9 +1646,9 @@ export class Editor {
     const g = this.theme.grid?.[['dots', 'crosses'].includes(this.grid) ? 'dot' : 'line']
     if (!g) return
     let step = GRID_STEP
-    while (step * cam.z < 18) step *= 2
-    while (step * cam.z > 72) step /= 2
-    const fade = clamp((step * cam.z - 16) / 14, 0, 1)
+    while (step * cam.z < 36) step *= 2
+    while (step * cam.z > 144) step /= 2
+    const fade = clamp((step * cam.z - 32) / 28, 0, 1)
     if (fade <= 0) return
     const z = cam.z * dpr
     // first line/dot of each axis that lands inside the frame
@@ -1697,8 +1697,6 @@ export class Editor {
       // that stays self-aligned at every zoom. One quiet weight — major
       // emphasis turns a woven field into noise.
       const s = Math.tan(Math.PI / 6) // 30° from horizontal
-      // a diamond reads twice the size of a square cell, so it takes twice the step
-      const iso = step * 2
       ctx.beginPath()
       for (const sign of [1, -1]) {
         const slope = sign * s
@@ -1706,10 +1704,10 @@ export class Editor {
         const b0 = -slope * cam.x + cam.y // device intercept of the k=0 line, /z
         const lo = Math.min(0, -slope * (W / z)) // device-x range → intercept range
         const hi = Math.max(H / z, H / z - slope * (W / z))
-        const k0 = Math.ceil((lo - b0) / iso)
-        const k1 = Math.floor((hi - b0) / iso)
+        const k0 = Math.ceil((lo - b0) / step)
+        const k1 = Math.floor((hi - b0) / step)
         for (let k = k0; k <= k1; k++) {
-          const b = (b0 + k * iso) * z
+          const b = (b0 + k * step) * z
           ctx.moveTo(0, b)
           ctx.lineTo(W, b + slope * W)
         }
