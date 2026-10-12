@@ -72,8 +72,8 @@ export const THEMES = {
     handleFill: '#26231c',
     scribble: '#f2555a',
     grid: {
-      line: { minor: 'rgba(255, 246, 224, 0.18)', major: 'rgba(255, 246, 224, 0.32)' },
-      dot: { minor: 'rgba(255, 246, 224, 0.34)', major: 'rgba(255, 246, 224, 0.52)' },
+      line: { minor: 'rgba(255, 246, 224, 0.28)', major: 'rgba(255, 246, 224, 0.46)' },
+      dot: { minor: 'rgba(255, 246, 224, 0.46)', major: 'rgba(255, 246, 224, 0.66)' },
     },
   },
 }
