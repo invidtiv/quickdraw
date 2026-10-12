@@ -58,8 +58,8 @@ export const THEMES = {
     // far less ink than a rule of the same weight, so they run darker to land
     // at the same visual quiet.
     grid: {
-      line: { minor: 'rgba(60, 50, 30, 0.13)', major: 'rgba(60, 50, 30, 0.26)' },
-      dot: { minor: 'rgba(60, 50, 30, 0.26)', major: 'rgba(60, 50, 30, 0.45)' },
+      line: { minor: 'rgba(60, 50, 30, 0.22)', major: 'rgba(60, 50, 30, 0.40)' },
+      dot: { minor: 'rgba(60, 50, 30, 0.42)', major: 'rgba(60, 50, 30, 0.62)' },
     },
   },
   dark: {
@@ -72,8 +72,8 @@ export const THEMES = {
     handleFill: '#26231c',
     scribble: '#f2555a',
     grid: {
-      line: { minor: 'rgba(255, 246, 224, 0.10)', major: 'rgba(255, 246, 224, 0.20)' },
-      dot: { minor: 'rgba(255, 246, 224, 0.20)', major: 'rgba(255, 246, 224, 0.36)' },
+      line: { minor: 'rgba(255, 246, 224, 0.18)', major: 'rgba(255, 246, 224, 0.32)' },
+      dot: { minor: 'rgba(255, 246, 224, 0.34)', major: 'rgba(255, 246, 224, 0.52)' },
     },
   },
 }
