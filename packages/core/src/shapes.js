@@ -13,7 +13,7 @@ import {
   wobblePolyline, bowPolygon, traceSmooth, segIntersectsBounds,
   boundsIntersect, boundsContain,
 } from './geometry.js'
-import { strokeOutline } from './freehand.js'
+import { strokeOutline, inkOptions } from './freehand.js'
 
 export const NOTE_W = 200
 const NOTE_PAD = 20
@@ -31,7 +31,7 @@ export function localBounds(shape) {
     case 'draw':
     case 'highlight': {
       const b = ptsBounds(p.pts, 3)
-      const m = SIZES[p.size] * (shape.type === 'highlight' ? HIGHLIGHT_SCALE / 2 : 0.75)
+      const m = shape.type === 'highlight' ? SIZES[p.size] * HIGHLIGHT_SCALE / 2 : inkReach(p.size)
       return { x: b.x - m, y: b.y - m, w: b.w + m * 2, h: b.h + m * 2 }
     }
     case 'arrow':
@@ -328,11 +328,17 @@ function drawPath(shape) {
     if (hit) return hit
   }
   const path = new Path2D()
-  const outline = strokeOutline(p.pts, { size: INK_SIZES[p.size], simulate: !p.isPen })
+  const outline = strokeOutline(p.pts, inkOptions(INK_SIZES[p.size], { isPen: !!p.isPen, done: !!p.done }))
   traceSmooth(path, outline, true)
   path.closePath()
   if (p.done) outlineCache.set(p, path)
   return path
+}
+
+// how far the ink can reach from its centerline: a pen's widest is a little
+// over its nominal width
+function inkReach(size) {
+  return INK_SIZES[size] + 1
 }
 
 // Draw one shape. ctx is already in PAGE space (camera applied by caller);
@@ -343,7 +349,9 @@ export function drawShape(ctx, shape, opts) {
   const p = shape.props
   const col = theme.colors[p.color || 'black']
   ctx.save()
-  if (opts.ghost) ctx.globalAlpha = 0.3
+  // the shape's own opacity style, under the eraser's ghosting
+  const alpha = (opts.ghost ? 0.3 : 1) * (p.opacity ?? 1)
+  if (alpha !== 1) ctx.globalAlpha = alpha
   const lb = localBounds(shape)
   if (shape.rot) {
     const cx = shape.x + lb.x + lb.w / 2
@@ -374,7 +382,7 @@ export function drawShape(ctx, shape, opts) {
       break
     }
     case 'highlight': {
-      ctx.globalAlpha = (opts.ghost ? 0.3 : 1) * HIGHLIGHT_ALPHA
+      ctx.globalAlpha = alpha * HIGHLIGHT_ALPHA
       // multiply soaks into light paper; on dark paper it would blacken —
       // lighten glows instead, like a marker on a chalkboard
       ctx.globalCompositeOperation = theme.id === 'dark' ? 'lighten' : 'multiply'
@@ -507,7 +515,7 @@ export function hitShape(shape, px, py, tol, store) {
   const p = shape.props
   switch (shape.type) {
     case 'draw':
-      return distToPolyline(l.x, l.y, p.pts, 3) <= tol + SIZES[p.size] * 0.9
+      return distToPolyline(l.x, l.y, p.pts, 3) <= tol + inkReach(p.size)
     case 'highlight':
       return distToPolyline(l.x, l.y, p.pts, 3) <= tol + (SIZES[p.size] * HIGHLIGHT_SCALE) / 2
     case 'geo': {

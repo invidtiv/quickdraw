@@ -281,12 +281,36 @@ export function buildUI(editor, { hidden = false, onSave, themeToggle = true, gr
       b.addEventListener('click', (e) => { e.stopPropagation(); editor.setStyle('fill', f); restyle() })
       fills.appendChild(b)
     }
+    // opacity: one slider, 10–100%. A drag is a single undo step.
+    const opac = row('qd-opacity')
+    opac.innerHTML = '<span class="qd-opacity-label">Opacity</span><input type="range" min="10" max="100" step="5" aria-label="Opacity"><span class="qd-opacity-val"></span>'
+    const range = opac.querySelector('input')
+    const opVal = opac.querySelector('.qd-opacity-val')
+    const showOpacity = (o) => {
+      const pct = o == null ? null : Math.round(o * 100)
+      range.value = pct ?? 100
+      range.style.setProperty('--pct', (((pct ?? 100) - 10) / 90) * 100 + '%')
+      opVal.textContent = pct == null ? 'Mixed' : pct + '%'
+    }
+    showOpacity(cur.opacity)
+    let sliding = false
+    range.addEventListener('input', () => {
+      if (!sliding) { sliding = true; editor.store.beginBatch() }
+      editor.setStyle('opacity', Number(range.value) / 100)
+      showOpacity(Number(range.value) / 100)
+    })
+    range.addEventListener('change', () => {
+      if (sliding) { sliding = false; editor.store.endBatch() }
+    })
+    // arrows nudge the slider, not the selection; Backspace must not delete
+    range.addEventListener('keydown', (e) => e.stopPropagation())
     function restyle() {
       const c2 = editor.currentStyles()
       colors.querySelectorAll('.qd-dot').forEach((b, i) => b.classList.toggle('on', COLOR_IDS[i] === c2.color))
       sizes.querySelectorAll('.qd-opt').forEach((b, i) => b.classList.toggle('on', SIZE_IDS[i] === c2.size))
       dashes.querySelectorAll('.qd-opt').forEach((b, i) => b.classList.toggle('on', DASH_IDS[i] === c2.dash))
       fills.querySelectorAll('.qd-opt').forEach((b, i) => b.classList.toggle('on', FILL_IDS[i] === c2.fill))
+      showOpacity(c2.opacity)
       refresh()
     }
   }
@@ -558,7 +582,9 @@ export function buildUI(editor, { hidden = false, onSave, themeToggle = true, gr
     // the folded button wears the active tool so the state stays visible
     toolsBtn.innerHTML = ICONS[editor.tool === 'geo' ? editor.geoKind : editor.tool] || ICONS.select
     toolsBtn.classList.toggle('on', popover?.name === 'tools')
-    styleDot.style.background = editor.theme.colors[editor.currentStyles().color || 'blue'].stroke
+    const curStyles = editor.currentStyles()
+    styleDot.style.background = editor.theme.colors[curStyles.color || 'blue'].stroke
+    styleDot.style.opacity = Math.max(0.25, curStyles.opacity ?? 1)
     menuBtn.classList.toggle('on', popover?.name === 'menu')
     styleBtn.classList.toggle('on', popover?.name === 'styles')
     moreBtn.classList.toggle('on', popover?.name === 'more')

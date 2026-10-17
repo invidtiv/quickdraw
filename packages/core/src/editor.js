@@ -18,7 +18,10 @@ const RESIZE_CURSORS = {
   tl: 'nwse-resize', br: 'nwse-resize', tr: 'nesw-resize', bl: 'nesw-resize',
   t: 'ns-resize', b: 'ns-resize', l: 'ew-resize', r: 'ew-resize',
 }
-const DEFAULT_STYLES = { color: 'blue', size: 'm', dash: 'draw', fill: 'none', font: 'draw' }
+const DEFAULT_STYLES = { color: 'blue', size: 'm', dash: 'draw', fill: 'none', font: 'draw', opacity: 1 }
+const ALL_TYPES = ['draw', 'highlight', 'geo', 'arrow', 'line', 'text', 'note', 'image']
+
+const hundredth = (v) => Math.round(v * 100) / 100
 
 export const TOOLS = ['select', 'hand', 'draw', 'highlight', 'eraser', 'laser', 'arrow', 'line', 'geo', 'text', 'note']
 
@@ -364,6 +367,7 @@ export class Editor {
         dash: ['draw', 'geo', 'arrow', 'line'],
         fill: ['geo'],
         font: ['text', 'note', 'geo'],
+        opacity: ALL_TYPES,
       }
       this.store.transact(() => {
         for (const id of this.selection) {
@@ -374,6 +378,10 @@ export class Editor {
     }
     this.emit('styles')
   }
+  _opacityProp() {
+    const o = this.styles.opacity
+    return typeof o === 'number' && o < 1 ? { opacity: o } : {}
+  }
   // shared styles of the selection (null value = mixed), or the pen styles
   currentStyles() {
     if (!this.selection.size) return { ...this.styles }
@@ -381,10 +389,12 @@ export class Editor {
     for (const id of this.selection) {
       const s = this.store.get(id)
       if (!s) continue
-      for (const k of ['color', 'size', 'dash', 'fill', 'font']) {
-        if (s.props[k] === undefined) continue
-        if (!(k in out)) out[k] = s.props[k]
-        else if (out[k] !== s.props[k]) out[k] = null
+      for (const k of ['color', 'size', 'dash', 'fill', 'font', 'opacity']) {
+        // shapes from before the opacity style draw fully opaque
+        const v = k === 'opacity' ? s.props.opacity ?? 1 : s.props[k]
+        if (v === undefined) continue
+        if (!(k in out)) out[k] = v
+        else if (out[k] !== v) out[k] = null
       }
     }
     return { ...this.styles, ...out }
@@ -778,7 +788,7 @@ export class Editor {
     const shape = {
       id, typeName: 'shape', type, x: p.x, y: p.y, rot: 0, z: this.store.maxZ() + 1,
       props: {
-        pts: [0, 0, e.pressure || 0.5],
+        pts: [0, 0, hundredth(e.pressure || 0.5)],
         color: this.styles.color,
         size: this.styles.size,
         // the pencil honors the line style too: 'draw' is pressure ink, the
@@ -786,25 +796,40 @@ export class Editor {
         ...(type === 'draw' ? { dash: this.styles.dash } : {}),
         done: false,
         ...(e.pointerType === 'pen' ? { isPen: true } : {}),
+        ...this._opacityProp(),
       },
     }
     this.store.put(shape)
-    this.session = { type: 'drawing', id, last: p }
+    this.session = { type: 'drawing', id, last: p, zoom: this.camera.z }
   }
   _extendDraw(e, p) {
     const ss = this.session
     const shape = this.store.get(ss.id)
     if (!shape) { this.session = null; return }
-    const minD = 1.25 / this.camera.z
-    if (Math.hypot(p.x - ss.last.x, p.y - ss.last.y) < minD) return
-    ss.last = p
-    // coalesced points ride along for pens — extra fidelity is free
+    // every move of a mouse is a point; a pen's moves under a screen pixel
+    // merge into its last point instead of adding one
+    const pen = !!shape.props.isPen
+    const zoom = ss.zoom ?? (ss.zoom = this.camera.z)
+    // coalesced points ride along — extra fidelity is free
     const evs = e.getCoalescedEvents ? e.getCoalescedEvents() : [e]
     const pts = shape.props.pts.slice()
     for (const ce of evs.length ? evs : [e]) {
-      const cp = this.screenToPage(...(() => { const r = this._evPoint(ce); return [r.x, r.y] })())
-      pts.push(cp.x - shape.x, cp.y - shape.y, ce.pressure || 0.5)
+      const r = this._evPoint(ce)
+      const cp = this.screenToPage(r.x, r.y)
+      // to the hundredth of a pixel: finer is invisible, and costs on the wire
+      const x = hundredth(cp.x - shape.x), y = hundredth(cp.y - shape.y), z = hundredth(ce.pressure || 0.5)
+      const k = pts.length - 3
+      if (pen && Math.hypot(cp.x - ss.last.x, cp.y - ss.last.y) < 1 / zoom) {
+        pts[k] = x
+        pts[k + 1] = y
+        pts[k + 2] = pts[k + 2] ? Math.max(pts[k + 2], z) : z
+        continue
+      }
+      if (pts[k] === x && pts[k + 1] === y) continue
+      if (pen) ss.last = cp
+      pts.push(x, y, z)
     }
+    if (pts.length === shape.props.pts.length && pts.every((v, i) => v === shape.props.pts[i])) return
     this.store.update(ss.id, { props: { pts } })
   }
   _endDraw() {
@@ -904,6 +929,7 @@ export class Editor {
         dx: 0.01, dy: 0.01, bend: 0,
         color: this.styles.color, size: this.styles.size,
         dash: this.styles.dash === 'draw' ? 'solid' : this.styles.dash,
+        ...this._opacityProp(),
       },
     })
     this.session = { type: 'lineish', id }
@@ -925,7 +951,7 @@ export class Editor {
     this.session = null
     if (s && Math.hypot(s.props.dx, s.props.dy) < 2 / this.camera.z) this.store.remove([s.id])
     this.store.endBatch()
-    if (s) { this.setTool('select'); this.setSelection([s.id]) }
+    // the tool stays: one line or arrow after another
   }
 
   // ---- geo -----------------------------------------------------------------
@@ -938,6 +964,7 @@ export class Editor {
         geo: this.geoKind, w: 1, h: 1,
         color: this.styles.color, size: this.styles.size,
         dash: this.styles.dash, fill: this.styles.fill, font: this.styles.font,
+        ...this._opacityProp(),
       },
     })
     this.session = { type: 'geo-create', id, origin: p, dragged: false }
@@ -969,7 +996,7 @@ export class Editor {
       this.store.update(s.id, { x: s.x - 80, y: s.y - 80, props: { w: 160, h: 160 } })
     }
     this.store.endBatch()
-    if (s) { this.setTool('select'); this.setSelection([s.id]) }
+    // the tool stays: one shape after another
   }
 
   // ---- text / note ---------------------------------------------------------
@@ -979,7 +1006,7 @@ export class Editor {
     this.store.put({
       id, typeName: 'shape', type: 'text', x: p.x, y: p.y - FONT_SIZES[this.styles.size] * 0.66, rot: 0,
       z: this.store.maxZ() + 1,
-      props: { text: '', color: this.styles.color, size: this.styles.size, font: this.styles.font, autosize: true, scale: 1 },
+      props: { text: '', color: this.styles.color, size: this.styles.size, font: this.styles.font, autosize: true, scale: 1, ...this._opacityProp() },
     })
     this.setTool('select')
     this.setSelection([id])
@@ -991,7 +1018,7 @@ export class Editor {
     this.store.put({
       id, typeName: 'shape', type: 'note', x: p.x - NOTE_W / 2, y: p.y - NOTE_W / 2, rot: 0,
       z: this.store.maxZ() + 1,
-      props: { text: '', color: this.styles.color === DEFAULT_STYLES.color ? 'yellow' : this.styles.color, size: 'm', font: this.styles.font, scale: 1 },
+      props: { text: '', color: this.styles.color === DEFAULT_STYLES.color ? 'yellow' : this.styles.color, size: 'm', font: this.styles.font, scale: 1, ...this._opacityProp() },
     })
     this.setTool('select')
     this.setSelection([id])
@@ -1081,6 +1108,7 @@ export class Editor {
     ta.style.height = h * z + 'px'
     ta.style.textAlign = align
     ta.style.color = shape.type === 'note' ? this.theme.noteText : col.stroke
+    ta.style.opacity = shape.props.opacity ?? 1
   }
   _commitText() {
     const ed = this.editing

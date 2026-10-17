@@ -116,15 +116,16 @@ describe('drawing', () => {
 })
 
 describe('geo / line / arrow', () => {
-  it('dragging geo creates a rect of the dragged size and selects it', () => {
+  it('dragging geo creates a rect of the dragged size, and the tool stays', () => {
     editor.setTool('geo')
     drag(editor, [[10, 10], [110, 60]])
     const [s] = editor.store.shapes()
     expect(s.type).toBe('geo')
     expect(s.props.w).toBeCloseTo(100)
     expect(s.props.h).toBeCloseTo(50)
-    expect(editor.tool).toBe('select') // tool returns to select
-    expect(editor.selection.has(s.id)).toBe(true)
+    expect(editor.tool).toBe('geo') // the tool stays, for the next shape
+    drag(editor, [[200, 10], [260, 60]])
+    expect(editor.store.shapes().length).toBe(2)
   })
 
   it('a click (no drag) drops a ready-made 160x160 shape', () => {
@@ -163,6 +164,7 @@ describe('selection & transforms', () => {
   const makeRect = (x, y, w = 60, h = 40) => {
     editor.setTool('geo')
     drag(editor, [[x, y], [x + w, y + h]])
+    editor.setTool('select')
     return editor.store.shapes()[editor.store.shapes().length - 1]
   }
 
@@ -574,7 +576,8 @@ describe('createQuickdraw UI', () => {
     ed.setTool('geo')
     drag(ed, [[10, 10], [110, 60]])
     const [s] = ed.store.shapes()
-    expect(ed.selection.has(s.id)).toBe(true)
+    ed.setTool('select')
+    ed.setSelection([s.id])
     c2.querySelector('.qd-dock button[data-name="geo"]').click()
     expect(ed.tool).toBe('select')
     expect(ed.selection.has(s.id)).toBe(true)

@@ -47,6 +47,91 @@ export const composeDiff = (a, b) => {
   return out
 }
 
+// ---- the wire: diffs for a live peer ------------------------------------------
+// A stroke grows one diff per pointer move, and each diff carries the whole
+// record before and after — on a slow link that's the stroke sent again and
+// again, the peer replaying a growing backlog. On the wire an update carries
+// only the record it becomes, and a stroke whose points only changed at the
+// end carries only that end ({ grow: how many numbers the peer has, at: how
+// many of them stay, pts: what follows them }). The peer rebuilds the diff
+// against its own store with unpackDiff.
+
+// how many leading numbers of the stroke's points stayed, when nothing else
+// about it changed; -1 otherwise
+const keptPts = (from, to) => {
+  const a = from?.props?.pts
+  const b = to?.props?.pts
+  if (!Array.isArray(a) || !Array.isArray(b)) return -1
+  for (const k in to) if (k !== 'props' && to[k] !== from[k]) return -1
+  for (const k in from) if (!(k in to)) return -1
+  for (const k in to.props) if (k !== 'pts' && to.props[k] !== from.props[k]) return -1
+  for (const k in from.props) if (!(k in to.props)) return -1
+  let i = 0
+  const n = Math.min(a.length, b.length)
+  while (i < n && a[i] === b[i]) i++
+  return i
+}
+
+export function packDiff(diff) {
+  const updated = {}
+  for (const [id, [from, to]] of Object.entries(diff.updated || {})) {
+    const at = keptPts(from, to)
+    updated[id] = at >= 3
+      ? { grow: from.props.pts.length, at, pts: to.props.pts.slice(at) }
+      : [null, to]
+  }
+  return { added: diff.added || {}, removed: diff.removed || {}, updated }
+}
+
+export function unpackDiff(wire, store) {
+  const updated = {}
+  for (const [id, u] of Object.entries(wire.updated || {})) {
+    const rec = store.get(id)
+    if (Array.isArray(u)) {
+      updated[id] = [rec || u[0], u[1]]
+      continue
+    }
+    // out of step (changed here meanwhile): skip it — a stroke's whole
+    // record follows when the pen lifts, and puts it right
+    const pts = rec?.props?.pts
+    if (!Array.isArray(pts) || pts.length !== u.grow || !Array.isArray(u.pts)) continue
+    const at = typeof u.at === 'number' ? u.at : u.grow
+    updated[id] = [rec, { ...rec, props: { ...rec.props, pts: pts.slice(0, at).concat(u.pts) } }]
+  }
+  return { added: wire.added || {}, removed: wire.removed || {}, updated }
+}
+
+// Streams a store's edits to a live peer as packed diffs. Inside a gesture
+// they gather, and go at most every `interval` ms, and only once the link
+// has sent what came before (busy() false): a slow link skips straight to
+// where the stroke is now instead of falling behind. Edits outside a gesture
+// go at once. send(packed, open) — open: a gesture is still going.
+// flush() sends what's gathered now (call it when a gesture ends).
+export function streamDiffs(store, { send, busy = () => false, source = 'user', interval = 16 }) {
+  let pending = null
+  let timer = 0
+  const flush = () => {
+    clearTimeout(timer)
+    timer = 0
+    if (!pending) return
+    const d = pending
+    pending = null
+    send(packDiff(d), !!store._batch)
+  }
+  const tick = () => {
+    timer = 0
+    if (!pending) return
+    if (busy()) timer = setTimeout(tick, interval)
+    else flush()
+  }
+  const off = store.listen((diff) => {
+    pending = pending ? composeDiff(pending, diff) : diff
+    if (!store._batch) flush()
+    else if (!timer) timer = setTimeout(tick, interval)
+  }, { source })
+  return { flush, stop() { off(); clearTimeout(timer); pending = null } }
+}
+
 export class Store {
   constructor() {
     this.records = new Map()

@@ -94,9 +94,9 @@ export const themeOf = (id) => THEMES[id === 'dark' ? 'dark' : 'light']
 // Stroke widths in page px at zoom 1. The pencil's freehand outline breathes
 // around this; geometry strokes use it flat.
 export const SIZES = { s: 2.5, m: 4, l: 6.5, xl: 10 }
-// The pencil's pressure ink thins below its nominal size, so S and M read a
-// step smaller than the even-width styles; give them a compensating boost.
-export const INK_SIZES = { s: 3.4, m: 5.2, l: 6.5, xl: 10 }
+// The pencil's pressure ink swells and thins around these widths; a touch
+// fuller than the even-width styles, so the line reads as ink.
+export const INK_SIZES = { s: 3.2, m: 4.6, l: 6.2, xl: 10 }
 export const SIZE_IDS = ['s', 'm', 'l', 'xl']
 
 // Font sizes for text shapes / labels, page px.

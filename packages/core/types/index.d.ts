@@ -27,6 +27,8 @@ export interface Styles {
   dash: DashId
   fill: FillId
   font: FontId
+  /** 0.1–1; shapes drawn under 1 keep it as their own `opacity` prop */
+  opacity: number
 }
 
 export type ShapeType =
@@ -110,6 +112,31 @@ export function isDiffEmpty(d: Diff | null | undefined): boolean
 export function invertDiff(d: Diff): Diff
 export function composeDiff(a: Diff, b: Diff): Diff
 
+/**
+ * A diff as it travels to a live peer: updates carry only the record they
+ * become (`[null, to]`), and a stroke whose points only changed at the end
+ * carries only that end (`{ grow, at, pts }`: how many numbers the peer has,
+ * how many of them stay, and what follows them).
+ */
+export interface WireDiff {
+  added: Record<string, BoardRecord>
+  removed: Record<string, BoardRecord>
+  updated: Record<string, [BoardRecord | null, BoardRecord] | { grow: number; at: number; pts: number[] }>
+}
+export function packDiff(d: Diff): WireDiff
+/** Rebuild a packed diff against the receiving store, ready for applyDiff. */
+export function unpackDiff(d: WireDiff, store: Store): Diff
+/**
+ * Stream a store's edits to a live peer as packed diffs: gathered inside a
+ * gesture and sent at most every `interval` ms once `busy()` is false, at
+ * once outside one. `open` says a gesture is still going; call `flush()`
+ * when one ends.
+ */
+export function streamDiffs(
+  store: Store,
+  opts: { send: (changes: WireDiff, open: boolean) => void; busy?: () => boolean; source?: 'user' | 'remote' | 'all'; interval?: number }
+): { flush(): void; stop(): void }
+
 /** Local (unrotated, origin-relative) bounds of a shape. */
 export function localBounds(shape: ShapeRecord): Bounds
 /** Axis-aligned page bounds of a shape, rotation included. */
@@ -123,14 +150,27 @@ export function drawShape(
 /** Point hit-test in page space. */
 export function hitShape(shape: ShapeRecord, px: number, py: number, tol: number, store: Store): boolean
 
+/** The ink's stroke options (perfect-freehand's). */
+export interface StrokeOptions {
+  size?: number
+  thinning?: number
+  smoothing?: number
+  streamline?: number
+  easing?: (pressure: number) => number
+  simulatePressure?: boolean
+  start?: { cap?: boolean; taper?: number | boolean; easing?: (distance: number) => number }
+  end?: { cap?: boolean; taper?: number | boolean; easing?: (distance: number) => number }
+  last?: boolean
+}
+
+/** The ink's settings for a stroke `width` wide (a pen's own pressure, or one simulated from speed). */
+export function inkOptions(width: number, opts?: { isPen?: boolean; done?: boolean }): StrokeOptions
+
 /**
  * Turn a raw pointer trail ([x, y, pressure, ...] triplets) into a filled
  * outline polygon ([x, y, ...]) whose width breathes with pressure.
  */
-export function strokeOutline(
-  pts: number[],
-  opts?: { size?: number; thinning?: number; streamline?: number; simulate?: boolean; taper?: boolean }
-): number[]
+export function strokeOutline(pts: number[], opts?: StrokeOptions): number[]
 
 /**
  * The document store. Every mutation happens inside a transaction; one diff
@@ -245,7 +285,7 @@ export class Editor {
   setReadonly(ro: boolean): void
   setPenMode(on: boolean): void
   setStyle<K extends keyof Styles>(key: K, value: Styles[K]): void
-  currentStyles(): Partial<Record<keyof Styles, string | null>>
+  currentStyles(): Partial<{ [K in keyof Styles]: Styles[K] | null }>
 
   // selection
   setSelection(ids: string[]): void

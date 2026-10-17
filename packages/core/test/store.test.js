@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { Store, newId, isDiffEmpty, invertDiff, composeDiff } from '../src/store.js'
+import { Store, newId, isDiffEmpty, invertDiff, composeDiff, packDiff, unpackDiff, streamDiffs } from '../src/store.js'
 
 const shape = (id, x = 0) => ({
   id, typeName: 'shape', type: 'geo', x, y: 0, rot: 0, z: 1,
@@ -297,5 +297,84 @@ describe('z order helpers', () => {
     s.put({ ...shape('b'), z: -2 })
     expect(s.maxZ()).toBe(4)
     expect(s.minZ()).toBe(-2)
+  })
+})
+
+describe('the wire: packDiff / unpackDiff / streamDiffs', () => {
+  const stroke = (pts, done = false) => ({
+    id: 'shape:s', typeName: 'shape', type: 'draw', x: 0, y: 0, rot: 0, z: 1,
+    props: { pts, color: 'blue', size: 'm', done },
+  })
+
+  it('a stroke that only grew travels as its new points', () => {
+    const a = new Store()
+    const b = new Store()
+    a.put(stroke([0, 0, 0.5]))
+    b.put(stroke([0, 0, 0.5]))
+    let sent
+    a.listen((d) => { sent = packDiff(d) })
+    a.update('shape:s', { props: { pts: [0, 0, 0.5, 5, 5, 0.5, 9, 9, 0.5] } })
+    expect(sent.updated['shape:s']).toEqual({ grow: 3, at: 3, pts: [5, 5, 0.5, 9, 9, 0.5] })
+    b.applyDiff(unpackDiff(sent, b))
+    expect(b.get('shape:s')).toEqual(a.get('shape:s'))
+    // a pen's last point moving travels as just that point
+    a.update('shape:s', { props: { pts: [0, 0, 0.5, 5, 5, 0.5, 9.5, 9, 0.6] } })
+    expect(sent.updated['shape:s']).toEqual({ grow: 9, at: 6, pts: [9.5, 9, 0.6] })
+    b.applyDiff(unpackDiff(sent, b))
+    expect(b.get('shape:s')).toEqual(a.get('shape:s'))
+  })
+
+  it('anything else carries the whole record, without the old one', () => {
+    const a = new Store()
+    a.put(stroke([0, 0, 0.5, 5, 5, 0.5]))
+    let sent
+    a.listen((d) => { sent = packDiff(d) })
+    a.update('shape:s', { props: { done: true } })
+    expect(sent.updated['shape:s'][0]).toBe(null)
+    expect(sent.updated['shape:s'][1]).toEqual(a.get('shape:s'))
+  })
+
+  it('an out-of-step grow is skipped, and the pen-up record puts it right', () => {
+    const b = new Store()
+    b.put(stroke([0, 0, 0.5]))
+    b.applyDiff(unpackDiff({ added: {}, removed: {}, updated: { 'shape:s': { grow: 6, pts: [1, 1, 0.5] } } }, b))
+    expect(b.get('shape:s').props.pts).toEqual([0, 0, 0.5])
+    const full = stroke([0, 0, 0.5, 1, 1, 0.5, 2, 2, 0.5], true)
+    b.applyDiff(unpackDiff({ added: {}, removed: {}, updated: { 'shape:s': [null, full] } }, b))
+    expect(b.get('shape:s')).toEqual(full)
+  })
+
+  it('streamDiffs gathers a gesture while the link is busy and sends where it is now', () => {
+    vi.useFakeTimers()
+    try {
+      const a = new Store()
+      const b = new Store()
+      let busy = true
+      const sent = []
+      const out = streamDiffs(a, { send: (d, open) => sent.push({ d, open }), busy: () => busy })
+      a.beginBatch()
+      a.put(stroke([0, 0, 0.5]))
+      for (let i = 1; i <= 50; i++) {
+        a.update('shape:s', { props: { pts: [...a.get('shape:s').props.pts, i, i, 0.5] } })
+      }
+      vi.advanceTimersByTime(200)
+      expect(sent.length).toBe(0)
+      busy = false
+      vi.advanceTimersByTime(20)
+      expect(sent.length).toBe(1)
+      expect(sent[0].open).toBe(true)
+      a.update('shape:s', { props: { done: true } })
+      a.endBatch()
+      out.flush()
+      expect(sent.length).toBe(2)
+      for (const { d } of sent) b.applyDiff(unpackDiff(d, b))
+      expect(b.get('shape:s')).toEqual(a.get('shape:s'))
+      // outside a gesture, an edit goes at once
+      a.remove(['shape:s'])
+      expect(sent.length).toBe(3)
+      out.stop()
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })
